@@ -4,19 +4,19 @@
 
 This script measures client-side latency when using boto3 to query DynamoDB. 
 
+Again, this test is on client-side performance rather than DynamoDB itself. To understand DynamoDB performance, you should instead use CloudWatch metrics for your table(s) in question.
+
 # Results
 
 1. When a query retrieves many items each with many attributes, the python client takes notably longer to deserialize/parse responses.
 2. When a query retrieves many items with a single attribute that, in aggregate, is the same size as the "many attributes" test, the client-side deserialize/parse occurs much faster.
 3. Python 3.7 performed significantly faster than Python 2.7 (I saw ~2x improvement on larger queries); 
-4. On smaller queries, Python 2.7 and 3.7 had comparable response times. 
+4. On very smaller queries (a few items), Python 2.7 and 3.7 had comparable response times. 
 
 # Disclaimer
 
 * This is a quick and dirty, unofficial test and may be subject to error.
 * There are many variables to consider when measuring latency; please run your own tests to be sure!
-* DynamoDB server-side latency should be inspected using CloudWatch metrics. 
-* This test is only focused on client-side latency, of which DynamoDB response time is only one component.
 * To minimize impact of location, latency, etc., I ran my tests un a sufficiently sized EC2 instance (e.g. m4.large) in the same region as the DynamoDB table. 
 
 # Overview
