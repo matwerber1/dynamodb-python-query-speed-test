@@ -6,8 +6,8 @@ This script measures client-side latency when using boto3 to query DynamoDB.
 
 # Results
 
-1. When a query retrieves many items each with many attributes, the client takes notably longer to deserialize responses.
-2. When a query retrieves many items with a single attribute that, in aggregate, is the same size as the "many attributes" test, the client latency is much faster, as less time is needed in the deserialization process.
+1. When a query retrieves many items each with many attributes, the python client takes notably longer to deserialize/parse responses.
+2. When a query retrieves many items with a single attribute that, in aggregate, is the same size as the "many attributes" test, the client-side deserialize/parse occurs much faster.
 3. Python 3.7 performed significantly faster than Python 2.7 (I saw ~2x improvement on larger queries); 
 4. On smaller queries, Python 2.7 and 3.7 had comparable response times. 
 
