@@ -77,7 +77,8 @@ Current query of 2800 items took 1 API calls and took 1.08828496933, avg time ac
 ```
 
 Example 2 - Python 2.7 - querying 3000 items with same hash_id, with single attribute of 144 random chars. **Response times improved to approximately ~200ms per API query** just by "compacting" the additional fields into a single attribute of the same size.
-'''
+
+```
 $ python test.py -table ddb-speed-test -query 2800 -seed 3000 -columns one
 DynamoDB table ddb-speed-test already exists, skipping table creation.
 Scanning for items to delete...
@@ -89,8 +90,11 @@ Batch writing complete. Wrote 3000 total new items.
 Current query of 2800 items took 1 API calls and took 0.204576969147, avg time across all API calls is:0.204576969147
 Current query of 2800 items took 1 API calls and took 0.197309970856, avg time across all API calls is:0.200943470001
 Current query of 2800 items took 1 API calls and took 0.170806884766, avg time across all API calls is:0.190897941589
+...
+```
 
 Example 3 - Python 3.7 - same as example 2, except using Python 3.7 instead of 2.7. As you can see, response times improved even further, down to ~120ms.
+
 ```
 $ python3.7 test.py -table ddb-speed-test -query 2800 -seed 3000 -columns one                                      
 DynamoDB table ddb-speed-test already exists, skipping table creation.
@@ -103,4 +107,5 @@ Batch writing complete. Wrote 3000 total new items.
 Current query of 2800 items took 1 API calls and took 0.154924392700195, avg time across all API calls is:0.154924392700195
 Current query of 2800 items took 1 API calls and took 0.115370750427241, avg time across all API calls is:0.135147571637207
 Current query of 2800 items took 1 API calls and took 0.1084184646064453, avg time across all API calls is:0.126237862626953
+...
 ```
