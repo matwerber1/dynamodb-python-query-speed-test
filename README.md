@@ -28,13 +28,15 @@ This script performs the following:
     * the hash key will be a string attribute named "hash_id"
     * the sort key will be a string attribute named "sort_key"
 2) Optionally seeds the table with a user-specified number of items. 
-    * all items will be seeded with the same hash_id of "1000" (to keep things in same partition**)
+    * all items will be seeded with the same hash_id of "1000" (**Note 1**)
     * each item will receive a random UUID as its sort_id
     * The user must specify "many" or "one" for the --columns flag when seeding the table...
         * "many" will create 24 additional fields, each containing 6 random characters (144 chars total)
         * "one" will create a single additional field containing 144 random characters
     * When seeding the table, the script first deletes any existing items from said table
 4) Runs a dynamodb.query() API call against a user-specified dynamoDB table.
+
+**Note 1 ** - I used the same partition key (aka hash key) for testing for both simplicity as well as testing / confirming throughput of a single partition. 
 
 # Usage
 
