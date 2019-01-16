@@ -8,6 +8,8 @@ Again, this test is on client-side performance rather than DynamoDB itself. To u
 
 # Results
 
+See examples at end of readme, see below for summary: 
+
 1. When a query retrieves many items each with many attributes, the python client takes notably longer to deserialize/parse responses.
 2. When a query retrieves many items with a single attribute that, in aggregate, is the same size as the "many attributes" test, the client-side deserialize/parse occurs much faster.
 3. Python 3.7 performed significantly faster than Python 2.7 (I saw ~2x improvement on larger queries); 
