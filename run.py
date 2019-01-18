@@ -82,9 +82,12 @@ def main():
       seed_ddb_table(tableResource, hash_id, items_to_seed, args.columns)
     
     # use this to test query read time
-    for x in range(1000):
-      test_query_time(tableResource, hash_id, num_items_to_query)
-    
+    @time_it
+    def run_test():
+        for x in range(5):
+          print('-' * 30)
+          test_query_time(tableResource, hash_id, num_items_to_query)
+    run_test()
     # use this to test scan read time
     #test_scan_time(table, hash_id, 1,200)
     
@@ -272,7 +275,6 @@ def id_generator(size=6, chars=string.ascii_uppercase + string.digits):
 # --------------------------------------------------------------------------------------------
 @time_it
 def test_query_time(table, hash_id, num_items_to_query):
-    
     global total_query_count_all_queries
     
     item_count = 0
