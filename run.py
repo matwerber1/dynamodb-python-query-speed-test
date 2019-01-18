@@ -25,11 +25,12 @@ parser.add_argument('--seed', type=int,
 parser.add_argument('--columns', type=str,
                      help='valid values are "one" or "many"')
 
-parser.add_argument('--local', action='store_true',
-      help='Use Dynamo local')
       
 parser.add_argument('--region', type=str, default='us-east-1',
-      help='Use local or region dynamo')
+      help='Region name for auth and endpoint construction')
+      
+parser.add_argument('--endpoint', type=str,
+      help='Override endpoint')
 args = parser.parse_args()
 
 # if seed is present, then --columns is required. columns determines whether we have one big columns (144 chars) or 24 smaller columns (6 chars each)
@@ -47,10 +48,10 @@ elif args.seed == None and args.columns != None:
 # some calls use the resource, some use the client
 boto_args = {'service_name': 'dynamodb'}
 boto_args['region_name'] = args.region
-if not args.local:
+if not args.endpoint:
     boto_args['endpoint_url'] = 'https://dynamodb.{}.amazonaws.com'.format(boto_args['region_name'])
 else:
-    boto_args['endpoint_url'] = 'http://localhost:8000'
+    boto_args['endpoint_url'] = args.endpoint
 
 ddb_resource = boto3.resource(**boto_args)
 ddb_client = boto3.client(**boto_args)
@@ -219,7 +220,7 @@ def seed_ddb_table(table, hash_id, item_count, columns):
           batch.put_item(Item={
             'hash_id': hash_id,
             'sort_id': new_sort_id,
-            'field1': id_generator(144)
+            'field1': '\0'.join([id_generator(6)] * 24)
           }
         )
         
