@@ -28,8 +28,8 @@ parser.add_argument('--columns', type=str,
 parser.add_argument('--local', action='store_true',
       help='Use Dynamo local')
       
-parser.add_argument('--endpoint', type=str, default='https://dynamodb.us-east-1.amazonaws.com',
-      help='Use local or prod dynamo')
+parser.add_argument('--region', type=str, default='us-east-1',
+      help='Use local or region dynamo')
 args = parser.parse_args()
 
 # if seed is present, then --columns is required. columns determines whether we have one big columns (144 chars) or 24 smaller columns (6 chars each)
@@ -46,8 +46,12 @@ elif args.seed == None and args.columns != None:
 
 # some calls use the resource, some use the client
 boto_args = {'service_name': 'dynamodb'}
-if args.endpoint:
-      boto_args['endpoint_url'] = args.endpoint
+boto_args['region_name'] = args.region
+if not args.local:
+    boto_args['endpoint_url'] = 'https://dynamodb.{}.amazonaws.com'.format(boto_args['region_name'])
+else:
+    boto_args['endpoint_url'] = 'http://localhost:8000'
+
 ddb_resource = boto3.resource(**boto_args)
 ddb_client = boto3.client(**boto_args)
 
