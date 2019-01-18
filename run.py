@@ -25,12 +25,15 @@ parser.add_argument('--seed', type=int,
 parser.add_argument('--columns', type=str,
                      help='valid values are "one" or "many"')
 
-      
 parser.add_argument('--region', type=str, default='us-east-1',
       help='Region name for auth and endpoint construction')
       
 parser.add_argument('--endpoint', type=str,
       help='Override endpoint')
+
+parser.add_argument('--rounds', type=int, default = 1000,
+      help='Number of rounds')
+
 args = parser.parse_args()
 
 # if seed is present, then --columns is required. columns determines whether we have one big columns (144 chars) or 24 smaller columns (6 chars each)
@@ -89,7 +92,7 @@ def main():
     # use this to test query read time
     @time_it
     def run_test():
-        for x in range(5):
+        for x in range(args.rounds):
           print('-' * 30)
           test_query_time(tableResource, hash_id, num_items_to_query)
     run_test()
