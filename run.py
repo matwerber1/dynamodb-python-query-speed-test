@@ -94,6 +94,23 @@ def main():
     }
 
 # --------------------------------------------------------------------------------------------
+def time_it(func):
+    time_it.active = 0
+    def tt(*args, **kwargs):
+        print_slugs = dict()
+        time_it.active += 1
+        t0 = time.time()
+        print_slugs['tabs'] = '\t' * (time_it.active)
+        print_slugs['name'] = func.__name__
+        print("{tabs}Executing '{name}'".format(**print_slugs))
+        res = func(*args, **kwargs)
+        print_slugs['time'] = (time.time() - t0) * 1000
+        print("{tabs}Function '{name}' execution time: {time:.1f}ms".format(**print_slugs))
+        time_it.active += -1
+        return res
+    return tt
+# --------------------------------------------------------------------------------------------
+
 def ddb_table_exists(tableName):
     try:
       response = ddb_client.describe_table(TableName=tableName)
@@ -253,15 +270,16 @@ def id_generator(size=6, chars=string.ascii_uppercase + string.digits):
     return ''.join(random.choice(chars) for _ in range(size))
 
 # --------------------------------------------------------------------------------------------
+@time_it
 def test_query_time(table, hash_id, num_items_to_query):
     
-    global total_elapsed_time_all_queries
     global total_query_count_all_queries
     
-    total_item_count = 0
+    item_count = 0
     query_count = 0
+    @time_it
     def query_it(limit = num_items_to_query, exclusive_start_key = None):
-        nonlocal query_count, total_item_count
+        nonlocal query_count, item_count
         query_args = {
             'KeyConditionExpression': Key('hash_id').eq(hash_id),
             'Limit': limit,
@@ -270,19 +288,18 @@ def test_query_time(table, hash_id, num_items_to_query):
             query_args['ExclusiveStartKey'] = exclusive_start_key
         response =  table.query(**query_args)
         query_count += 1
-        total_item_count += response['Count']
+        item_count += response['Count']
         return response
     response = query_it()
     
-    while ('LastEvaluatedKey' in response and total_item_count < num_items_to_query):
-      remaining_items_to_query = num_items_to_query - query_count
+    while ('LastEvaluatedKey' in response and item_count < num_items_to_query):
+      remaining_items_to_query = num_items_to_query - item_count
       incremental_start = time.time()
       response = query_it(remaining_items_to_query, response['LastEvaluatedKey'])
 
     # if we choose to run multiple queries in a loop, this tracks grand totals
-    total_elapsed_time_all_queries += total_elapsed_time
     total_query_count_all_queries += query_count
-    average_response_all_queries = total_elapsed_time_all_queries / total_query_count_all_queries
+    print("Retrieved row count:{}, Number of Query: {}".format(item_count, query_count))
 
     #print('Current query of ' + str(min(total_item_count, num_items_to_query)) + ' items took ' + str(query_count) + ' API calls and took ' + str(total_elapsed_time) + ', avg time across all API calls is:' + str(average_response_all_queries))
 
@@ -291,7 +308,6 @@ def _get_ddb_table_session(tableName):
       dynamodb = boto3.resource('dynamodb')
       table = dynamodb.Table(tableName)
       return table
-
-
+        
 if __name__ == '__main__':
       main()
