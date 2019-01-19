@@ -36,7 +36,7 @@ This script performs the following:
     * When seeding the table, the script first deletes any existing items from said table
 4) Runs a dynamodb.query() API call against a user-specified dynamoDB table.
 
-**Note 1 ** - I used the same partition key (aka hash key) for testing for both simplicity as well as testing / confirming throughput of a single partition. 
+**Note 1** - I used the same partition key (aka hash key) for testing for both simplicity as well as testing / confirming throughput of a single partition. 
 
 # Usage
 
