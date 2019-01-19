@@ -10,15 +10,12 @@ from boto3.dynamodb.conditions import Key, Attr
 
 parser = argparse.ArgumentParser(description='Test DynamoDB query API speed.')
 
-
-
 parser.add_argument('--table', type=str, default='query_testing_table',
                      help='dynamodb table to use for testing')
 
 parser.add_argument('--num-items-to-query', type=int, default=5000,
                      help='number of items to query per API call')
 
-#if seed is omitted, no new items will be created
 parser.add_argument('--seed', type=int,
                      help='number of items to put into test table')
 
@@ -27,7 +24,7 @@ parser.add_argument('--columns', type=str,
 
 parser.add_argument('--region', type=str, default='us-east-1',
       help='Region name for auth and endpoint construction')
-      
+
 parser.add_argument('--endpoint', type=str,
       help='Override endpoint')
 
@@ -36,21 +33,16 @@ parser.add_argument('--rounds', type=int, default = 1000,
 
 args = parser.parse_args()
 
-# if seed is present, then --columns is required. columns determines whether we have one big columns (144 chars) or 24 smaller columns (6 chars each)
+# if seed is present, then --columns is required. columns determines whether we
+# have one big columns (144 chars) or 24 smaller columns (6 chars each)
 if args.seed != None and args.columns == None:
-    raise Exception('If you specify --columns, you must also specify --seed parameter')
-elif args.seed == None and args.columns != None:
     raise Exception('If you specify --seed, you must also specify --columns parameter')
+elif args.seed == None and args.columns != None:
+    raise Exception('If you specify --columns, you must also specify --seed parameter')
 
-# for tracing w/ xray in Lambda (assuming you've packaged the sdk or imported via Lambda layer)
-#from aws_xray_sdk.core import xray_recorder
-#from aws_xray_sdk.core import patch
-## patches boto3 to use xray
-#patch(['boto3'])
-
-# some calls use the resource, some use the client
 boto_args = {'service_name': 'dynamodb'}
 boto_args['region_name'] = args.region
+
 if not args.endpoint:
     boto_args['endpoint_url'] = 'https://dynamodb.{}.amazonaws.com'.format(boto_args['region_name'])
 else:
@@ -59,36 +51,21 @@ else:
 ddb_resource = boto3.resource(**boto_args)
 ddb_client = boto3.client(**boto_args)
 
-total_query_count_all_queries = 0
-total_elapsed_time_all_queries = 0
-
 # --------------------------------------------------------------------------------------------
 def main():
-      
-    tableName = args.table
-    tableResource = ddb_resource.Table(tableName)
-    
-    # arbitrary hash key which is used to seed our data; the seed script will also assign a random UUID as the sort key to each item
-    hash_id = '1000'
 
-    # number of items to add to DDB table
-    items_to_seed = args.seed
-    
-    # if calling test_query_time, this is the number of items per query and total # of items to retrieve; i.e. a value of 50 and 200 would make 4 calls of 50 items each (4x50 = 200)
+    tableName      = args.table
+    tableResource  = ddb_resource.Table(tableName)
+    items_to_seed  = args.seed
+    hash_id        = "1000"                            # arbitrary hash key which is used to seed our data; the seed script will also assign a random UUID as the sort key to each item
     num_items_to_query = args.num_items_to_query
-    
-    # Create DynamoDB table
-    #TODO - add error handling if table already exists
+
     create_ddb_table(tableName)
-    
-    # if seed is given (should be an int), then empty any existing table contents and re-seed table
+
     if args.seed != None:
-      # Empty contents of table
       delete_all_items_in_table(tableResource)
-    
-      #Use this to seed DynamoDB table
       seed_ddb_table(tableResource, hash_id, items_to_seed, args.columns)
-    
+
     # use this to test query read time
     @time_it
     def run_test():
@@ -96,13 +73,8 @@ def main():
           print('-' * 30)
           test_query_time(tableResource, hash_id, num_items_to_query)
     run_test()
-    # use this to test scan read time
-    #test_scan_time(table, hash_id, 1,200)
-    
-    return {
-      'statusCode': 200,
-      'body': json.dumps('Done!')
-    }
+
+    print('Done!')
 
 # --------------------------------------------------------------------------------------------
 def time_it(func):
@@ -132,13 +104,13 @@ def ddb_table_exists(tableName):
 
 # --------------------------------------------------------------------------------------------
 def create_ddb_table(tableName):
-    
+
     if ddb_table_exists(tableName):
       print('DynamoDB table ' + tableName + ' already exists, skipping table creation.')
-    
-    else:  
+
+    else:
       print('Creating DynamoDB table ' + tableName + '...')
-      
+
       response = ddb_client.create_table(
         AttributeDefinitions=[
           {
@@ -167,19 +139,20 @@ def create_ddb_table(tableName):
           'WriteCapacityUnits': 100
         },
       )
-      
+
       print('Table created.')
-      
+
 # --------------------------------------------------------------------------------------------
 def delete_all_items_in_table(table):
     count = 0
     scanned_items = []
-    print('Scanning for items to delete...')  
-    
+
+    print('Scanning for items to delete...')
+
     response = table.scan(
       ProjectionExpression='#hash, #sort',
       ExpressionAttributeNames={
-        '#hash': 'hash_id', 
+        '#hash': 'hash_id',
         '#sort': 'sort_id'
       }
     )
@@ -189,54 +162,52 @@ def delete_all_items_in_table(table):
           ExclusiveStartKey=response['LastEvaluatedKey'],
           ProjectionExpression='#hash, #sort',
           ExpressionAttributeNames={
-            '#hash': 'hash_id', 
+            '#hash': 'hash_id',
             '#sort': 'sort_id'
         }
       )
       scanned_items = scanned_items + response['Items']
-        
 
-        
     print('Deleting items...')
     with table.batch_writer() as batch:
-      print('Deleting batch of items...')
       for each in scanned_items:
         count += 1
         batch.delete_item(Key=each)
+
     print(str(count) + ' items deleted.')
-    
+
 # --------------------------------------------------------------------------------------------
 def seed_ddb_table(table, hash_id, item_count, columns):
-    
+
     print('Seeding ddb table...')
-    
+
     write_count = 0
-    
+
     if columns == 'one':
-    
+
       with table.batch_writer() as batch:
-          
+
         for i in range(item_count):
-            
+
           new_sort_id = str(uuid.uuid4())
-          
+
           batch.put_item(Item={
             'hash_id': hash_id,
             'sort_id': new_sort_id,
             'field1': '\0'.join([id_generator(6)] * 24)
           }
         )
-        
+
         write_count +=1
-    
+
     elif columns == 'many':
-      
+
       with table.batch_writer() as batch:
-          
+
         for i in range(item_count):
-            
+
           new_sort_id = str(uuid.uuid4())
-          
+
           batch.put_item(Item={
             'hash_id': hash_id,
             'sort_id': new_sort_id,
@@ -266,12 +237,10 @@ def seed_ddb_table(table, hash_id, item_count, columns):
             'field24': id_generator(6)
           }
         )
-        
+
         write_count +=1
     else:
       print('unkown table attributes parameter "' + tableAttributes + '", unable to seed table.')
-    
-      
 
     print("Batch writing complete. Wrote " + str(item_count) + " total new items.")
 
@@ -283,13 +252,19 @@ def id_generator(size=6, chars=string.ascii_uppercase + string.digits):
 # --------------------------------------------------------------------------------------------
 @time_it
 def test_query_time(table, hash_id, num_items_to_query):
-    global total_query_count_all_queries
-    
-    item_count = 0
-    query_count = 0
+
+    # replaced with dict below for Py 2/3 compatibility
+    #item_count = 0
+    #query_count = 0
+
+    d = {'query_count': 0, 'item_count': 0}
+
     @time_it
     def query_it(limit = num_items_to_query, exclusive_start_key = None):
-        nonlocal query_count, item_count
+
+        # nonlocal only compatible with Python 3.7; replacing with dict closure for Py2/3 compatibility
+        #nonlocal query_count, item_count
+
         query_args = {
             'KeyConditionExpression': Key('hash_id').eq(hash_id),
             'Limit': limit,
@@ -297,27 +272,31 @@ def test_query_time(table, hash_id, num_items_to_query):
         if exclusive_start_key:
             query_args['ExclusiveStartKey'] = exclusive_start_key
         response =  table.query(**query_args)
-        query_count += 1
-        item_count += response['Count']
-        return response
+
+        # replaced with returning dict below instead of nonlocal vars for Py 2/3 compatibility
+        #query_count += 1
+        #item_count += response['Count']
+        #return response
+        d['query_count'] += 1
+        d['item_count']  += response['Count']
+        return d
+
     response = query_it()
-    
+
     while ('LastEvaluatedKey' in response and item_count < num_items_to_query):
       remaining_items_to_query = num_items_to_query - item_count
       incremental_start = time.time()
       response = query_it(remaining_items_to_query, response['LastEvaluatedKey'])
 
     # if we choose to run multiple queries in a loop, this tracks grand totals
-    total_query_count_all_queries += query_count
-    print("Retrieved row count:{}, Number of Query: {}".format(item_count, query_count))
-
-    #print('Current query of ' + str(min(total_item_count, num_items_to_query)) + ' items took ' + str(query_count) + ' API calls and took ' + str(total_elapsed_time) + ', avg time across all API calls is:' + str(average_response_all_queries))
+    #print("Retrieved row count:{}, Number of Query: {}".format(item_count, query_count))
+    print("Retrieved row count:{}, Number of Query: {}".format(d['item_count'], d['query_count']))
 
 # --------------------------------------------------------------------------------------------
 def _get_ddb_table_session(tableName):
       dynamodb = boto3.resource('dynamodb')
       table = dynamodb.Table(tableName)
       return table
-        
+
 if __name__ == '__main__':
       main()
