@@ -2,114 +2,200 @@
 
 # Purpose
 
-This script measures client-side latency when using boto3 to query DynamoDB. 
+This script measures client-side latency when using boto3 to query DynamoDB.
 
-Again, this test is on client-side performance rather than DynamoDB itself. To understand DynamoDB performance, you should instead use CloudWatch metrics for your table(s) in question.
+There are two key tests:
+1) Test the difference in performance between Python 2.7 and 3.7
+2) Test the difference between querying items with one large attribute (144 random chars) vs. 24 smaller attributes (6 chars each, total 144 chars)
 
-# Results
+Note - this test is only client-side performance. To understand server-side DynamoDB performance, you should instead use CloudWatch metrics.
 
-See examples at end of readme, see below for summary: 
+# TLDR; Test Results
 
-1. When a query retrieves many items each with many attributes, the python client takes notably longer to deserialize/parse responses.
-2. When a query retrieves many items with a single attribute that, in aggregate, is the same size as the "many attributes" test, the client-side deserialize/parse occurs much faster.
-3. Python 3.7 performed significantly faster than Python 2.7 (I saw ~2x improvement on larger queries); 
-4. On very smaller queries (a few items), Python 2.7 and 3.7 had comparable response times. 
+1. A larger number of attributes requires significantly more client processing time to deserialize the response received from DynamoDB.
+2. Python 3.7 deserializes responses from DynamoDB considerably faster than Python 2.7
+
+# Credits
+
+Thanks to switch180 (https://github.com/switch180) for a PR that cleaned up the code, added better timing measurement, local DDB support, and a few other improvements.
 
 # Disclaimer
 
-* This is a quick and dirty, unofficial test and may be subject to error.
-* There are many variables to consider when measuring latency; please run your own tests to be sure!
-* To minimize impact of location, latency, etc., I ran my tests un a sufficiently sized EC2 instance (e.g. m4.large) in the same region as the DynamoDB table. 
-
-# Overview
-This script performs the following:
-
-1) Creates the user-specified DynamoDB table if it does not already exist.
-    * the hash key will be a string attribute named "hash_id"
-    * the sort key will be a string attribute named "sort_key"
-2) Optionally seeds the table with a user-specified number of items. 
-    * all items will be seeded with the same hash_id of "1000" (**Note 1**)
-    * each item will receive a random UUID as its sort_id
-    * The user must specify "many" or "one" for the --columns flag when seeding the table...
-        * "many" will create 24 additional fields, each containing 6 random characters (144 chars total)
-        * "one" will create a single additional field containing 144 random characters
-    * When seeding the table, the script first deletes any existing items from said table
-4) Runs a dynamodb.query() API call against a user-specified dynamoDB table.
-
-**Note 1** - I used the same partition key (aka hash key) for testing for both simplicity as well as testing / confirming throughput of a single partition. 
+* There are many variables to consider when measuring latency, such as distance between server and client, available CPU & memory, bandwidth, etc. Testing in your own environment is the most reliable benchmark.
 
 # Usage
 
-1. Seed table with 3000 items each containing 24 fields of 6 chars each (in addition to the hash_id and sort_id fields); repeatedly query 2800 items from the table.
+```sh
+$ python run.py --help
+usage: run.py [-h] [--table TABLE] [--num-items-to-query NUM_ITEMS_TO_QUERY]
+              [--seed SEED] [--columns COLUMNS] [--region REGION]
+              [--endpoint ENDPOINT] [--rounds ROUNDS]
+
+Test DynamoDB query API speed.
+
+optional arguments:
+  -h, --help            show this help message and exit
+  --table TABLE         dynamodb table to use for testing
+  --num-items-to-query NUM_ITEMS_TO_QUERY
+                        number of items to query per API call
+  --seed SEED           number of items to put into test table
+  --columns COLUMNS     valid values are "one" or "many"
+  --region REGION       Region name for auth and endpoint construction
+  --endpoint ENDPOINT   Override endpoint
+  --rounds ROUNDS       Number of rounds
+```
+
+* If a populated table already exists with a hash and sort key named "hash_id" and "sort_id" of type string, you can omit the --seed and --columns options.
+* **WARNING** - If the --seed and --columns options are provided, all items (if any) from the specified table will be deleted! Then, it will be seeded with the number of items specified by --seed and --columns will determine whether it has one or many (24) additional attributes containing random characters.
+* If --seed and --columns is specified and the table does not already exist, the table will be created with provisioned capacity of 100 RCU and 100 WCU.
+* If --table is omitted, it will default to "query_testing_table".
+* If --num-items-to-query is omitted, it will default to 5000.
+* If --rounds is ommited, it will default to 1000.
+* If --seed is specified, you must also specify the --columns attribute.
+* --columns value of "one" will create a single 144 random character field in addition to the hash and sort key.
+* --columns value of "many" will create a 24 fields of 6 random characters each (144 chars total) in addition to the hash and sort key.
+
+# Example results
+
+Testing was performed on an m5.large in us-east-1 against a DynamoDB table in the same region.
+
+## Example 1 - Python 2.7 with many columns
+
+Query time was ~700ms
 
 ```sh
-python test.py -table ddb-speed-test -query 2800 -seed 3000 -columns many
+$ python run.py --region us-east-1  --table query_testing_table --rounds 5 --num-items-to-query 1800 --seed 5000 --columns many
+
+-query 1800 --seed 5000 --columns many
+DynamoDB table query_testing_table already exists, skipping table creation.
+Scanning for items to delete...
+Deleting items...
+3000 items deleted.
+Seeding ddb table...
+Batch writing complete. Wrote 5000 total new items.
+        Executing 'run_test'
+------------------------------
+                Executing 'test_query_time'
+        Executing 'query_it'
+        Function 'query_it' execution time: 728.9ms
+Retrieved row count:1800, Number of Query: 1
+                Function 'test_query_time' execution time: 729.0ms
+------------------------------
+Executing 'test_query_time'
+        Executing 'query_it'
+        Function 'query_it' execution time: 690.4ms
+Retrieved row count:1800, Number of Query: 1
+Function 'test_query_time' execution time: 690.4ms
+------------------------------
+Executing 'test_query_time'
+        Executing 'query_it'
+        Function 'query_it' execution time: 693.2ms
+Retrieved row count:1800, Number of Query: 1
+Function 'test_query_time' execution time: 693.3ms
+------------------------------
+Executing 'test_query_time'
+        Executing 'query_it'
+        Function 'query_it' execution time: 706.3ms
+Retrieved row count:1800, Number of Query: 1
+Function 'test_query_time' execution time: 706.4ms
+------------------------------
+Executing 'test_query_time'
+        Executing 'query_it'
+        Function 'query_it' execution time: 690.5ms
+Retrieved row count:1800, Number of Query: 1
+Function 'test_query_time' execution time: 690.5ms
+        Function 'run_test' execution time: 3509.7ms
+Done!
 ```
 
-2. Seed table with 3000 items each containing a single field of 144 chars each (in addition to the hash_id and sort_id fields); repeatedly query 2800 items from the table.
+## Example 2 - Python 2.7 with one column
+
+Query time improved from ~700ms down to ~120ms just by using one big attribute (144 chars) instead of 24 small attributes (6 chars each, 144 total).
 
 ```sh
-python test.py -table ddb-speed-test -query 2800 -seed 3000 -columns one
+$ python run.py --region us-east-1  --table query_testing_table --rounds 5 --num-items-to-query 1800 --seed 5000 --columns one
+
+-query 1800 --seed 5000 --columns one
+DynamoDB table query_testing_table already exists, skipping table creation.
+Scanning for items to delete...
+Deleting items...
+5000 items deleted.
+Seeding ddb table...
+Batch writing complete. Wrote 5000 total new items.
+        Executing 'run_test'
+------------------------------
+                Executing 'test_query_time'
+        Executing 'query_it'
+        Function 'query_it' execution time: 128.4ms
+Retrieved row count:1800, Number of Query: 1
+                Function 'test_query_time' execution time: 128.5ms
+------------------------------
+Executing 'test_query_time'
+        Executing 'query_it'
+        Function 'query_it' execution time: 123.1ms
+Retrieved row count:1800, Number of Query: 1
+Function 'test_query_time' execution time: 123.2ms
+------------------------------
+Executing 'test_query_time'
+        Executing 'query_it'
+        Function 'query_it' execution time: 134.2ms
+Retrieved row count:1800, Number of Query: 1
+Function 'test_query_time' execution time: 134.2ms
+------------------------------
+Executing 'test_query_time'
+        Executing 'query_it'
+        Function 'query_it' execution time: 112.6ms
+Retrieved row count:1800, Number of Query: 1
+Function 'test_query_time' execution time: 112.7ms
+------------------------------
+Executing 'test_query_time'
+        Executing 'query_it'
+        Function 'query_it' execution time: 121.0ms
+Retrieved row count:1800, Number of Query: 1
+Function 'test_query_time' execution time: 121.1ms
+        Function 'run_test' execution time: 619.7ms
+Done!
 ```
 
-3. Same as #1 above, but do not seed table (assumes it has been previously seeded)
+## Example 3 - Python 3.7 with one column
+
+Query time improved from ~120ms down to ~75ms just by switching from Python 2.7 to Python 3.7!
 
 ```sh
-python test.py -table ddb-speed-test -query 2800
-```
+$ python3.7 run.py --region us-east-1  --table query_testing_table --rounds 5 --num-items-to-query 1800
 
-# Example Results
-
-Again, please perform your own testing. These results are only meant to share some basic examples of testing latency. These were performed over a short period of time and not necessarily in the most scientific manner.
-
-Testing environment was EC2 m4.large running in same region as the DynamoDB table.
-
-Example 1 - Python 2.7 querying 3000 items with same hash_id, with 24 attributes of 6 chars each. Response times were approximately **~1.1 seconds per query!**
-```
-$ python test.py -table ddb-speed-test -query 2800 -seed 3000 -columns many
-DynamoDB table ddb-speed-test already exists, skipping table creation.
-Scanning for items to delete...
-Deleting items...
-Deleting batch of items...
-2938 items deleted.
-Preparing to seed ddb table...
-Batch writing complete. Wrote 3000 total new items.
-Current query of 2800 items took 1 API calls and took 1.11540293694, avg time across all API calls is:1.11540293694
-Current query of 2800 items took 1 API calls and took 1.10201001167, avg time across all API calls is:1.1087064743
-Current query of 2800 items took 1 API calls and took 1.08828496933, avg time across all API calls is:1.10189930598
-...
-```
-
-Example 2 - Python 2.7 - querying 3000 items with same hash_id, with single attribute of 144 random chars. **Response times improved to approximately ~200ms per API query** just by "compacting" the additional fields into a single attribute of the same size.
-
-```
-$ python test.py -table ddb-speed-test -query 2800 -seed 3000 -columns one
-DynamoDB table ddb-speed-test already exists, skipping table creation.
-Scanning for items to delete...
-Deleting items...
-Deleting batch of items...
-2938 items deleted.
-Preparing to seed ddb table...
-Batch writing complete. Wrote 3000 total new items.
-Current query of 2800 items took 1 API calls and took 0.204576969147, avg time across all API calls is:0.204576969147
-Current query of 2800 items took 1 API calls and took 0.197309970856, avg time across all API calls is:0.200943470001
-Current query of 2800 items took 1 API calls and took 0.170806884766, avg time across all API calls is:0.190897941589
-...
-```
-
-Example 3 - Python 3.7 - same as example 2, except using Python 3.7 instead of 2.7. As you can see, response times improved even further, down to ~120ms.
-
-```
-$ python3.7 test.py -table ddb-speed-test -query 2800 -seed 3000 -columns one                                      
-DynamoDB table ddb-speed-test already exists, skipping table creation.
-Scanning for items to delete...
-Deleting items...
-Deleting batch of items...
-3124 items deleted.
-Preparing to seed ddb table...
-Batch writing complete. Wrote 3000 total new items.
-Current query of 2800 items took 1 API calls and took 0.154924392700195, avg time across all API calls is:0.154924392700195
-Current query of 2800 items took 1 API calls and took 0.115370750427241, avg time across all API calls is:0.135147571637207
-Current query of 2800 items took 1 API calls and took 0.1084184646064453, avg time across all API calls is:0.126237862626953
-...
+DynamoDB table query_testing_table already exists, skipping table creation.
+        Executing 'run_test'
+------------------------------
+                Executing 'test_query_time'
+        Executing 'query_it'
+        Function 'query_it' execution time: 109.4ms
+Retrieved row count:1800, Number of Query: 1
+                Function 'test_query_time' execution time: 109.4ms
+------------------------------
+Executing 'test_query_time'
+        Executing 'query_it'
+        Function 'query_it' execution time: 75.3ms
+Retrieved row count:1800, Number of Query: 1
+Function 'test_query_time' execution time: 75.3ms
+------------------------------
+Executing 'test_query_time'
+        Executing 'query_it'
+        Function 'query_it' execution time: 76.6ms
+Retrieved row count:1800, Number of Query: 1
+Function 'test_query_time' execution time: 76.6ms
+------------------------------
+Executing 'test_query_time'
+        Executing 'query_it'
+        Function 'query_it' execution time: 76.1ms
+Retrieved row count:1800, Number of Query: 1
+Function 'test_query_time' execution time: 76.2ms
+------------------------------
+Executing 'test_query_time'
+        Executing 'query_it'
+        Function 'query_it' execution time: 70.3ms
+Retrieved row count:1800, Number of Query: 1
+Function 'test_query_time' execution time: 70.3ms
+        Function 'run_test' execution time: 408.0ms
+Done!
 ```
