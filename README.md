@@ -201,7 +201,7 @@ Function 'test_query_time' execution time: 70.3ms
 Done!
 ```
 
-4. Example 4 - Run against DynamoDB local
+# Example 4 - Run against DynamoDB local
 
 For reference, you can also run this script against DDB local:
 
