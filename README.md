@@ -54,6 +54,7 @@ optional arguments:
 * If --seed is specified, you must also specify the --columns attribute.
 * --columns value of "one" will create a single 144 random character field in addition to the hash and sort key.
 * --columns value of "many" will create a 24 fields of 6 random characters each (144 chars total) in addition to the hash and sort key.
+* You can run this script against the AWS-managed DynamoDB service or DynamoDB local
 
 # Example results
 
@@ -198,4 +199,22 @@ Retrieved row count:1800, Number of Query: 1
 Function 'test_query_time' execution time: 70.3ms
         Function 'run_test' execution time: 408.0ms
 Done!
+```
+
+4. Example 4 - Run against DynamoDB local
+
+For reference, you can also run this script against DDB local:
+
+```sh
+$ python run.py --table some-table --num-items-to-query 5876 --endpoint http://localhost:8000
+DynamoDB table some-table already exists, skipping table creation.
+	Executing 'run_test'
+------------------------------
+		Executing 'test_query_time'
+	Executing 'query_it'
+	Function 'query_it' execution time: 404.2ms
+	Executing 'query_it'
+	Function 'query_it' execution time: 79.6ms
+Retrieved row count:5876, Number of Query: 2
+		Function 'test_query_time' execution time: 486.1ms
 ```
