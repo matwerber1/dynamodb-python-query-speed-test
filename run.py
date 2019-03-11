@@ -21,6 +21,9 @@ parser = argparse.ArgumentParser(description='Test DynamoDB query API speed.')
 parser.add_argument('--table', type=str, default='query_testing_table',
                      help='dynamodb table to use for testing')
 
+
+# If num-items-to-query is zero, we will instead try to query as many items as
+# possible that can fit within a single query result
 parser.add_argument('--num-items-to-query', type=int, default=5000,
                      help='number of items to query per API call')
 
@@ -67,6 +70,8 @@ def main():
     items_to_seed  = args.seed
     hash_id        = "1000"                            # arbitrary hash key which is used to seed our data; the seed script will also assign a random UUID as the sort key to each item
     num_items_to_query = args.num_items_to_query
+    rounds = args.rounds
+    do_evaluate_next_keys = True
 
     create_ddb_table(tableName)
 
@@ -74,13 +79,23 @@ def main():
       delete_all_items_in_table(tableResource)
       seed_ddb_table(tableResource, hash_id, items_to_seed, args.columns)
 
-    print("Running {} rounds of {} items per query...".format(args.rounds, args.num_items_to_query))
+    if num_items_to_query == 0:
+        # We want to retrieve as many items as possible in a 
+        # single query. 99999999 should be sufficiently large
+        # to handle that
+        num_items_to_query = 999999999
+        do_evaluate_next_keys = False
+        print("Running {} rounds, only 1 query per round, retrieving as many items as possible...".format(rounds))
+    else:
+        print("Running {} rounds of {} items per query...".format(rounds, num_items_to_query))
+
+
 
     @time_it
     def run_test():
         for x in range(args.rounds):
           print('-' * 30)
-          test_query_time(tableResource, hash_id, num_items_to_query)
+          test_query_time(tableResource, hash_id, num_items_to_query, do_evaluate_next_keys)
     run_test()
 
     print('Done!')
@@ -269,7 +284,7 @@ def id_generator(size=6, chars=string.ascii_uppercase + string.digits):
 
 
 @time_it
-def test_query_time(table, hash_id, num_items_to_query):
+def test_query_time(table, hash_id, num_items_to_query, do_evaluate_next_keys):
 
     remaining_items_to_query = num_items_to_query
     d = {'query_count': 0, 'item_count': 0}
@@ -295,7 +310,7 @@ def test_query_time(table, hash_id, num_items_to_query):
 
     response = query_it()
 
-    while ('LastEvaluatedKey' in response and d['item_count']  < remaining_items_to_query):
+    while (do_evaluate_next_keys and 'LastEvaluatedKey' in response and d['item_count']  < remaining_items_to_query):
       remaining_items_to_query = num_items_to_query - d['item_count'] 
       incremental_start = time.time()
       response = query_it(remaining_items_to_query, response['LastEvaluatedKey'])
