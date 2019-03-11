@@ -13,11 +13,12 @@ Note - this test is only client-side performance. To understand server-side Dyna
 # TLDR; Test Results
 
 1. A larger number of attributes requires significantly more client processing time to deserialize the response received from DynamoDB.
-2. Python 3.7 deserializes responses from DynamoDB considerably faster than Python 2.7
+2. A larger number of attributes leads to larger response size (for the column headings). Since a single query is capped at 1 MB of data, this means fewer max rows can be retrieved per query. In other words, you can retrieve more rows per query if you use compress data into fewer columns. 
+3. Python 3.7 deserializes responses from DynamoDB considerably faster than Python 2.7
 
 # Credits
 
-Thanks to switch180 (https://github.com/switch180) for a PR that cleaned up the code, added better timing measurement, local DDB support, and a few other improvements.
+Thanks to switch180 (https://github.com/switch180) for a PR that cleaned up the code, added better timing measurement, local DDB support, and a few other improvements. Thanks to Chad Tindel for pointing out the increased number of items per query is possible when using smaller columns and code errors in the LastEvaluatedKey logic. 
 
 # Disclaimer
 
@@ -38,6 +39,9 @@ optional arguments:
   --table TABLE         dynamodb table to use for testing
   --num-items-to-query NUM_ITEMS_TO_QUERY
                         number of items to query per API call
+                        If you specify 0, then each round of querying
+                        will execute a single query to pull as many
+                        items as possible; LastEvaluatedKey will be ignored.
   --seed SEED           number of items to put into test table
   --columns COLUMNS     valid values are "one" or "many"
   --region REGION       Region name for auth and endpoint construction
