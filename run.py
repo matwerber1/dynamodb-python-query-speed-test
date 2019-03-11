@@ -164,7 +164,6 @@ def create_ddb_table(tableName):
         },
       )
 
-      print('DynamoDB table created.')
       table_status = 'CREATING'
 
       while (table_status == 'CREATING'):
