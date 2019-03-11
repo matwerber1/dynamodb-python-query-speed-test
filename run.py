@@ -10,6 +10,14 @@ from boto3.dynamodb.conditions import Key, Attr
 
 parser = argparse.ArgumentParser(description='Test DynamoDB query API speed.')
 
+# Examples:
+#
+# Create table and seed it
+# python run.py --table dynamodb-speed-test-one --seed 10000 --columns one --region us-east-2 --rounds 5
+#
+# Query a table that already exists
+# python run.py --table dynamodb-speed-test-one --region us-east-2 --rounds 5
+
 parser.add_argument('--table', type=str, default='query_testing_table',
                      help='dynamodb table to use for testing')
 
@@ -51,7 +59,7 @@ else:
 ddb_resource = boto3.resource(**boto_args)
 ddb_client = boto3.client(**boto_args)
 
-# --------------------------------------------------------------------------------------------
+
 def main():
 
     tableName      = args.table
@@ -66,7 +74,8 @@ def main():
       delete_all_items_in_table(tableResource)
       seed_ddb_table(tableResource, hash_id, items_to_seed, args.columns)
 
-    # use this to test query read time
+    print("Running {} rounds of {} items per query...".format(args.rounds, args.num_items_to_query))
+
     @time_it
     def run_test():
         for x in range(args.rounds):
@@ -76,7 +85,7 @@ def main():
 
     print('Done!')
 
-# --------------------------------------------------------------------------------------------
+
 def time_it(func):
     time_it.active = 0
     def tt(*args, **kwargs):
@@ -92,7 +101,7 @@ def time_it(func):
         time_it.active += -1
         return res
     return tt
-# --------------------------------------------------------------------------------------------
+
 
 def ddb_table_exists(tableName):
     try:
@@ -102,7 +111,7 @@ def ddb_table_exists(tableName):
       pass
     return False
 
-# --------------------------------------------------------------------------------------------
+
 def create_ddb_table(tableName):
 
     if ddb_table_exists(tableName):
@@ -140,9 +149,18 @@ def create_ddb_table(tableName):
         },
       )
 
-      print('Table created.')
+      print('DynamoDB table created.')
+      table_status = 'CREATING'
 
-# --------------------------------------------------------------------------------------------
+      while (table_status == 'CREATING'):
+        print('Table is {}, waiting for it to become ACTIVE...'.format(table_status))
+        response = ddb_client.describe_table(TableName=tableName)
+        table_status = response['Table']['TableStatus']
+        time.sleep(5)
+      
+      print('DynamoDB table is now active.')
+
+
 def delete_all_items_in_table(table):
     count = 0
     scanned_items = []
@@ -176,7 +194,7 @@ def delete_all_items_in_table(table):
 
     print(str(count) + ' items deleted.')
 
-# --------------------------------------------------------------------------------------------
+
 def seed_ddb_table(table, hash_id, item_count, columns):
 
     print('Seeding ddb table...')
@@ -244,56 +262,48 @@ def seed_ddb_table(table, hash_id, item_count, columns):
 
     print("Batch writing complete. Wrote " + str(item_count) + " total new items.")
 
-# --------------------------------------------------------------------------------------------
-# generate random string
+
 def id_generator(size=6, chars=string.ascii_uppercase + string.digits):
+
     return ''.join(random.choice(chars) for _ in range(size))
 
-# --------------------------------------------------------------------------------------------
+
 @time_it
 def test_query_time(table, hash_id, num_items_to_query):
 
-    # replaced with dict below for Py 2/3 compatibility
-    #item_count = 0
-    #query_count = 0
-
+    remaining_items_to_query = num_items_to_query
     d = {'query_count': 0, 'item_count': 0}
 
     @time_it
     def query_it(limit = num_items_to_query, exclusive_start_key = None):
-
-        # nonlocal only compatible with Python 3.7; replacing with dict closure for Py2/3 compatibility
-        #nonlocal query_count, item_count
-
+  
         query_args = {
             'KeyConditionExpression': Key('hash_id').eq(hash_id),
             'Limit': limit,
         }
+
         if exclusive_start_key:
             query_args['ExclusiveStartKey'] = exclusive_start_key
         response =  table.query(**query_args)
 
-        # replaced with returning dict below instead of nonlocal vars for Py 2/3 compatibility
-        #query_count += 1
-        #item_count += response['Count']
-        #return response
         d['query_count'] += 1
-        d['item_count']  += response['Count']
+        d['item_count'] += response['Count']
+        print('            Items retrieved: {}'.format(response['Count']))
+        d['LastEvaluatedKey'] = response['LastEvaluatedKey']
+
         return d
 
     response = query_it()
 
-    while ('LastEvaluatedKey' in response and item_count < num_items_to_query):
-      remaining_items_to_query = num_items_to_query - item_count
+    while ('LastEvaluatedKey' in response and d['item_count']  < remaining_items_to_query):
+      remaining_items_to_query = num_items_to_query - d['item_count'] 
       incremental_start = time.time()
       response = query_it(remaining_items_to_query, response['LastEvaluatedKey'])
 
-    # if we choose to run multiple queries in a loop, this tracks grand totals
-    #print("Retrieved row count:{}, Number of Query: {}".format(item_count, query_count))
-    print("Retrieved row count:{}, Number of Query: {}".format(d['item_count'], d['query_count']))
+    print("Total retrieved row count:{}, Total number of Queries: {}".format(d['item_count'], d['query_count']))
 
-# --------------------------------------------------------------------------------------------
 def _get_ddb_table_session(tableName):
+
       dynamodb = boto3.resource('dynamodb')
       table = dynamodb.Table(tableName)
       return table
