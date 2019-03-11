@@ -85,7 +85,7 @@ def main():
         # to handle that
         num_items_to_query = 999999999
         do_evaluate_next_keys = False
-        print("Running {} rounds, only 1 query per round, retrieving as many items as possible...".format(rounds))
+        print("Running {} rounds, only 1 query per round, retrieving as many items as possible per query...".format(rounds))
     else:
         print("Running {} rounds of {} items per query...".format(rounds, num_items_to_query))
 
