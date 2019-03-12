@@ -303,7 +303,9 @@ def test_query_time(table, hash_id, num_items_to_query, do_evaluate_next_keys):
         d['query_count'] += 1
         d['item_count'] += response['Count']
         print('            Items retrieved: {}'.format(response['Count']))
-        d['LastEvaluatedKey'] = response['LastEvaluatedKey']
+        
+        if 'LastEvaluatedKey' in response:
+            d['LastEvaluatedKey'] = response['LastEvaluatedKey']
 
         return d
 
