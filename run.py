@@ -36,7 +36,8 @@ def configure_parser():
     parser.add_argument(
         '--schema',
         type=str,
-        default='schemas/long.schema'
+        default='schemas/long.schema',
+        help='File containing schema of table to create'
     )
 
     parser.add_argument(
@@ -75,7 +76,8 @@ def configure_parser():
 
     parser.add_argument(
         '--skip-seed',
-        action='store_true'
+        action='store_true',
+        help='if present, existing table items will be preserved'
     )
 
     parser.add_argument(
