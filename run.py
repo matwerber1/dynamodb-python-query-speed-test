@@ -5,120 +5,291 @@ import string
 import time
 import json
 import boto3
+import sys
 import argparse
 from boto3.dynamodb.conditions import Key, Attr
 
 parser = argparse.ArgumentParser(description='Test DynamoDB query API speed.')
+args = None
+ddb_resource = None
+ddb_client = None
 
-# Examples:
-#
-# Create table and seed it
-# python run.py --table dynamodb-speed-test-one --seed 10000 --columns one --region us-east-2 --rounds 5
-#
-# Query a table that already exists
-# python run.py --table dynamodb-speed-test-one --region us-east-2 --rounds 5
-
-parser.add_argument('--table', type=str, default='query_testing_table',
-                     help='dynamodb table to use for testing')
+# bind raw_input to input for backwards compatibility w/ Python 2
+try:
+    input = raw_input
+except NameError:
+    pass
 
 
-# If num-items-to-query is zero, we will instead try to query as many items as
-# possible that can fit within a single query result
-parser.add_argument('--num-items-to-query', type=int, default=5000,
-                     help='number of items to query per API call')
+def configure_parser():
 
-parser.add_argument('--seed', type=int,
-                     help='number of items to put into test table')
+    global parser
+    global args
 
-parser.add_argument('--columns', type=str,
-                     help='valid values are "one" or "many"')
+    parser.add_argument(
+        '--table',
+        type=str,
+        default='query_testing_table',
+        help='dynamodb table to use for testing'
+    )
 
-parser.add_argument('--region', type=str, default='us-east-1',
-      help='Region name for auth and endpoint construction')
+    parser.add_argument(
+        '--schema',
+        type=str,
+        default='schemas/long.schema'
+    )
 
-parser.add_argument('--endpoint', type=str,
-      help='Override endpoint')
+    parser.add_argument(
+        '--seed',
+        type=int,
+        default=5000,
+        help='number of items to write to table'
+    )
 
-parser.add_argument('--rounds', type=int, default = 1000,
-      help='Number of rounds')
+    parser.add_argument(
+        '--query',
+        type=int,
+        default=2500,
+        help='number of items to query per API call'
+    )
 
-args = parser.parse_args()
+    parser.add_argument(
+        '--region',
+        type=str,
+        default='us-east-1',
+        help='Region name for auth and endpoint construction'
+    )
 
-# if seed is present, then --columns is required. columns determines whether we
-# have one big columns (144 chars) or 24 smaller columns (6 chars each)
-if args.seed != None and args.columns == None:
-    raise Exception('If you specify --seed, you must also specify --columns parameter')
-elif args.seed == None and args.columns != None:
-    raise Exception('If you specify --columns, you must also specify --seed parameter')
+    parser.add_argument(
+        '--endpoint',
+        type=str,
+        help='Override endpoint'
+    )
 
-boto_args = {'service_name': 'dynamodb'}
-boto_args['region_name'] = args.region
+    parser.add_argument(
+        '--rounds',
+        type=int,
+        default = 20,
+        help='Number of rounds'
+    )
 
-if not args.endpoint:
-    boto_args['endpoint_url'] = 'https://dynamodb.{}.amazonaws.com'.format(boto_args['region_name'])
-else:
-    boto_args['endpoint_url'] = args.endpoint
+    parser.add_argument(
+        '--skip-seed',
+        action='store_true'
+    )
 
-ddb_resource = boto3.resource(**boto_args)
-ddb_client = boto3.client(**boto_args)
+    parser.add_argument(
+        '--mode',
+        type=str,
+        default='PAY_PER_REQUEST',
+        help="Table capacity mode = 'PAY_PER_REQUEST' or 'PROVISIONED')"
+    )
+
+    parser.add_argument(
+        '--rcu',
+        type=int,
+        default=200,
+        help='Read capacity units (RCUs) (only for provisioned capacity mode)'
+    )
+
+    parser.add_argument(
+        '--wcu',
+        type=int,
+        default=100,
+        help='Write capacity units (WCUs) (only for provisioned capacity mode)'
+    )
+
+    args = parser.parse_args()
 
 
-def main():
+def configure_boto3():
 
-    tableName      = args.table
-    tableResource  = ddb_resource.Table(tableName)
-    items_to_seed  = args.seed
-    hash_id        = "1000"                            # arbitrary hash key which is used to seed our data; the seed script will also assign a random UUID as the sort key to each item
-    num_items_to_query = args.num_items_to_query
-    rounds = args.rounds
+    global ddb_resource
+    global ddb_client
+
+    boto_args = {'service_name': 'dynamodb'}
+    boto_args['region_name'] = args.region
+
+    if not args.endpoint:
+        boto_args['endpoint_url'] = 'https://dynamodb.{}.amazonaws.com'.format(boto_args['region_name'])
+    else:
+        boto_args['endpoint_url'] = args.endpoint
+
+    ddb_resource = boto3.resource(**boto_args)
+    ddb_client = boto3.client(**boto_args)
+
+
+def ask_user(prompt):
+
+    check = str(input("{} ? (Y/N): ".format(prompt))).lower().strip()
+
+    try:
+        if check[0] == 'y':
+            return True
+        elif check[0] == 'n':
+            return False
+        else:
+            print('Invalid Input')
+            return ask_user()
+
+    except Exception as error:
+        print("Please enter valid inputs")
+        print(error)
+        return ask_user(prompt)
+
+
+def execute_query_rounds(tableName, rounds, query_items, hash_id):
+
+    tableResource = ddb_resource.Table(tableName)
     do_evaluate_next_keys = True
 
-    create_ddb_table(tableName)
-
-    if args.seed != None:
-      delete_all_items_in_table(tableResource)
-      seed_ddb_table(tableResource, hash_id, items_to_seed, args.columns)
-
-    if num_items_to_query == 0:
-        # We want to retrieve as many items as possible in a 
-        # single query. 99999999 should be sufficiently large
-        # to handle that
-        num_items_to_query = 999999999
+    if query_items == 0:
+        # If query_items = 0, this means we actually want to query as many items
+        # as possible in a single query. So, we set an arbitrarily large query
+        # value with the assumption that, regardless of item size, we will hit
+        # the 1 MB max result before we actually read 99999999999 items.
+        query_items = 999999999
         do_evaluate_next_keys = False
-        print("Running {} rounds, only 1 query per round, retrieving as many items as possible per query...".format(rounds))
+        print("Running {} rounds, only 1 query per ".format(rounds)
+            + "round, retrieving as many items as possible per query (up to 999999999 items)..."
+        )
     else:
-        print("Running {} rounds of {} items per query...".format(rounds, num_items_to_query))
+        print("Running {} rounds of {} items per query...\n".format(
+            rounds, query_items)
+        )
+
+    d = {
+        'query_count': 0,
+        'item_count': 0,
+        'consumed_capacity': 0,
+        'elapsed_time': 0,
+        'total_bytes': 0
+    }
+
+    for x in range(args.rounds):
+        print('-' * 80)
+        print('ROUND {}:'.format(x+1))
+        response = execute_query_round(
+            tableResource,
+            hash_id,
+            query_items,
+            do_evaluate_next_keys
+        )
+
+        d['query_count'] += response['query_count']
+        d['item_count'] += response['item_count']
+        d['consumed_capacity'] += response['consumed_capacity']
+        d['elapsed_time'] += response['elapsed_time']
+        d['total_bytes'] += response['total_bytes']
+        avg_time_per_item = d['elapsed_time'] / d['item_count']
+
+    print('-' * 80 + '\n')
+    print('GRAND TOTALS:')
+    print('\tItems queried: {}'.format(d['item_count']))
+    print('\tElapsed time: {:.1f} ms'.format(d['elapsed_time']))
+    print('\tAvg. time per item: {:.3f} ms'.format(avg_time_per_item))
 
 
-
-    @time_it
-    def run_test():
-        for x in range(args.rounds):
-          print('-' * 30)
-          test_query_time(tableResource, hash_id, num_items_to_query, do_evaluate_next_keys)
-    run_test()
-
-    print('Done!')
+    print('-' * 80)
 
 
-def time_it(func):
-    time_it.active = 0
-    def tt(*args, **kwargs):
-        print_slugs = dict()
-        time_it.active += 1
-        t0 = time.time()
-        print_slugs['tabs'] = '\t' * (time_it.active)
-        print_slugs['name'] = func.__name__
-        print("{tabs}Executing '{name}'".format(**print_slugs))
-        res = func(*args, **kwargs)
-        print_slugs['time'] = (time.time() - t0) * 1000
-        print("{tabs}Function '{name}' execution time: {time:.1f}ms".format(**print_slugs))
-        time_it.active += -1
-        return res
-    return tt
+def execute_query_round(
+                            table,
+                            hash_id,
+                            num_items_to_query,
+                            do_evaluate_next_keys
+                        ):
+    d = {
+        'query_count': 0,
+        'item_count': 0,
+        'remaining_count': num_items_to_query,
+        'consumed_capacity': 0,
+        'exclusive_start_key': None,
+        'elapsed_time': 0,
+        'total_bytes': 0
+    }
+
+    done = False
+    
+    while (not done):
+        response = run_single_query(
+            table,
+            hash_id, 
+            d['remaining_count'],
+            d['exclusive_start_key']
+        )
+
+        capacity = response['ConsumedCapacity']['CapacityUnits']
+        d['query_count'] += 1
+        d['item_count'] += response['Count']
+        d['remaining_count'] -= response['Count']
+        d['consumed_capacity'] += capacity
+        d['elapsed_time'] += response['elapsed_time']
+        d['total_bytes'] += response['item_bytes']
+
+        print('    Retrieved {} items with {} RCU in {:.1f} ms, size is ~{:,.1f} MB'
+            .format(
+                response['Count'],
+                capacity,
+                response['elapsed_time'],
+                response['item_bytes']/1000000
+            )
+        )
+        
+        if (response['Count'] == 0):
+            print('Unexpected error: query returned 0 results!')
+            done = True
+        elif (d['remaining_count'] <= 0):
+            done = True
+        else:
+            done = False
+
+    print('Total items: {}, queries: {},  RCUs: {}, time: {:.1f} ms, size: ~{:,.1f} MB'.format(
+        d['item_count'],
+        d['query_count'],
+        d['consumed_capacity'],
+        d['elapsed_time'],
+        d['total_bytes']/1000000
+    ))
+
+    return d
+
+def run_single_query(table, hash_id, limit, exclusive_start_key=None):
+    
+    query_args = {
+        'KeyConditionExpression': Key('hash_id').eq(hash_id),
+        'Limit': limit,
+        'ReturnConsumedCapacity': 'TOTAL'
+    }
+
+    if exclusive_start_key and exclusive_start_key != None:
+        query_args['ExclusiveStartKey'] = exclusive_start_key
+
+    start_time = time.time()
+    response =  table.query(**query_args)
+    response['elapsed_time'] = (time.time() - start_time) * 1000
+    response['item_bytes'] = get_query_response_size(response['Items'])
+    return response
 
 
-def ddb_table_exists(tableName):
+def utf8len(s):
+    return len(s.encode('utf-8'))
+
+
+def get_query_response_size(items):
+    
+    # https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/CapacityUnitCalculations.html
+    item_bytes = 0
+
+    for item in items:
+        for key in item:
+            item_bytes += len(key)
+            item_bytes += utf8len(item[key])
+
+    return item_bytes
+
+
+def table_exists(tableName):
     try:
       response = ddb_client.describe_table(TableName=tableName)
       return True
@@ -127,154 +298,227 @@ def ddb_table_exists(tableName):
     return False
 
 
-def create_ddb_table(tableName):
+def create_table(tableName, mode, rcu, wcu):
 
-    if ddb_table_exists(tableName):
-      print('DynamoDB table ' + tableName + ' already exists, skipping table creation.')
+    create_parameters = {
+        'AttributeDefinitions': [
+            {
+                'AttributeName': 'hash_id',
+                'AttributeType': 'S'
+            },
+            {
+                'AttributeName': 'sort_id',
+              'AttributeType': 'S'
+            },
+        ],
+        'TableName': tableName,
+        'KeySchema': [
+            {
+                'AttributeName': 'hash_id',
+                'KeyType': 'HASH'
+            },
+            {
+                'AttributeName': 'sort_id',
+                'KeyType': 'RANGE'
+            },
+        ],
+    }
 
+    if (mode == 'PAY_PER_REQUEST'):
+        print('Creating DynamoDB table "{}" with on-demand capacity...'
+            .format(
+                tableName
+            )
+        )
+        create_parameters['BillingMode'] = 'PAY_PER_REQUEST'
+    elif (mode == 'provisioned'):
+        print('Creating DynamoDB table "{}" with provisioned capacity '
+            .format(
+                tableName
+            )
+            + ' of {} RCU and {} WCU'.format(rcu, wcu)
+        )
+        create_parameters['BillingMode'] = 'PROVISIONED'
+        create_parameters['ProvisionedThroughput'] = {
+            'ReadCapacityUnits': rcu,
+            'WriteCapacityUnits': wcu
+        }
     else:
-      print('Creating DynamoDB table ' + tableName + '...')
+        print('ERROR - Unrecognized capacity mode "{}", program ended!'.format(
+            mode
+        ))
 
-      response = ddb_client.create_table(
-        AttributeDefinitions=[
-          {
-            'AttributeName': 'hash_id',
-            'AttributeType': 'S'
-          },
-          {
-            'AttributeName': 'sort_id',
-            'AttributeType': 'S'
-          },
-        ],
-        TableName=tableName,
-        KeySchema=[
-          {
-            'AttributeName': 'hash_id',
-            'KeyType': 'HASH'
-          },
-          {
-            'AttributeName': 'sort_id',
-            'KeyType': 'RANGE'
-          },
-        ],
-        BillingMode='PROVISIONED',
-        ProvisionedThroughput={
-          'ReadCapacityUnits': 100,
-          'WriteCapacityUnits': 100
-        },
-      )
 
-      table_status = 'CREATING'
+    response = ddb_client.create_table(**create_parameters)
 
-      while (table_status == 'CREATING'):
-        print('Table is {}, waiting for it to become ACTIVE...'.format(table_status))
+    table_status = 'CREATING'
+
+    while (table_status != 'ACTIVE'):
+        print('Table is {}, waiting for it to become ACTIVE...'.format(
+                table_status)
+        )
         response = ddb_client.describe_table(TableName=tableName)
         table_status = response['Table']['TableStatus']
         time.sleep(5)
       
-      print('DynamoDB table is now active.')
+    print('DynamoDB table is now active.')
+
+
+def create_table_if_not_exists(tableName, mode, rcu, wcu):
+
+    if table_exists(tableName):
+        
+        print('DynamoDB table "{}" already exists...'.format(tableName))
+
+        update_table_capacity_mode(tableName, mode, rcu, wcu)
+
+        if (args.skip_seed == True):
+            print('Skipping delete of existing items...')
+        else:
+            print('WARNING - Proceeding will delete all exisiting data!' )
+            if (ask_user('OK to proceed?') == True):
+                delete_all_items_in_table(tableName)
+            else:
+                print('Program execution stopped.')
+                sys.exit()
+
+    else:
+        create_table(tableName, mode, rcu, wcu)
+
+
+def update_table_capacity_mode(tableName, new_mode, new_rcu, new_wcu):
+
+    response = ddb_client.describe_table(TableName=tableName)
+
+    current_mode = response['Table']['BillingModeSummary']['BillingMode']
+    current_rcu = response['Table']['ProvisionedThroughput']['ReadCapacityUnits']
+    current_wcu = response['Table']['ProvisionedThroughput']['WriteCapacityUnits']
+
+    updateTable = True
+
+    parameters = {
+        'TableName': tableName,
+        'BillingMode': new_mode
+    }
+
+    if (
+        (current_mode != new_mode and new_mode == 'PROVISIONED')
+            or (
+                current_mode == new_mode and new_mode == 'PROVISIONED'
+                and (new_rcu != current_rcu or new_wcu != current_wcu)
+            )
+    ):
+        if current_rcu != new_rcu or current_wcu != new_wcu:
+
+            print('Changing table to PROVISIONED capacity of {} RCU and {} WCU...'
+                .format(new_rcu, new_wcu)
+            )
+
+            parameters['ProvisionedThroughput'] = {
+                'ReadCapacityUnits': new_rcu,
+                'WriteCapacityUnits': new_wcu
+            }
+
+    elif current_mode != new_mode and new_mode == 'PAY_PER_REQUEST':
+        print('Changing to PAY_PER_REQUEST capacity mode...')
+
+    else:
+        updateTable = False
+
+    if updateTable:
+        response = ddb_client.update_table(**parameters)
+        table_status = 'UPDATING'
+        while (table_status != 'ACTIVE'):
+            print('Table is {}, waiting for it to become ACTIVE...'.format(
+                    table_status)
+            )
+            response = ddb_client.describe_table(TableName=tableName)
+            table_status = response['Table']['TableStatus']
+            time.sleep(5)
+        
+        print('DynamoDB table is now active.')
 
 
 def delete_all_items_in_table(table):
+
     count = 0
     scanned_items = []
-
+    tableResource = ddb_resource.Table(table)
+    
     print('Scanning for items to delete...')
-
-    response = table.scan(
-      ProjectionExpression='#hash, #sort',
-      ExpressionAttributeNames={
-        '#hash': 'hash_id',
-        '#sort': 'sort_id'
-      }
-    )
-    scanned_items = response['Items']
-    while 'LastEvaluatedKey' in response:
-      response = table.scan(
-          ExclusiveStartKey=response['LastEvaluatedKey'],
-          ProjectionExpression='#hash, #sort',
-          ExpressionAttributeNames={
+    response = tableResource.scan(
+        ProjectionExpression='#hash, #sort',
+        ExpressionAttributeNames={
             '#hash': 'hash_id',
             '#sort': 'sort_id'
         }
-      )
-      scanned_items = scanned_items + response['Items']
+    )
+    scanned_items = response['Items']
+
+    while 'LastEvaluatedKey' in response:
+        response = tableResource.scan(
+            ExclusiveStartKey=response['LastEvaluatedKey'],
+            ProjectionExpression='#hash, #sort',
+            ExpressionAttributeNames={
+                '#hash': 'hash_id',
+                '#sort': 'sort_id'
+            }
+        )
+        scanned_items = scanned_items + response['Items']
 
     print('Deleting items...')
-    with table.batch_writer() as batch:
-      for each in scanned_items:
-        count += 1
-        batch.delete_item(Key=each)
+    with tableResource.batch_writer() as batch:
+        for each in scanned_items:
+            count += 1
+            batch.delete_item(Key=each)
 
     print(str(count) + ' items deleted.')
 
 
-def seed_ddb_table(table, hash_id, item_count, columns):
+def getSchemaFromFile(schemaFile):
 
-    print('Seeding ddb table...')
+    file = open(schemaFile, 'r')
+    lines = file.read().splitlines() 
+    schema = {}
 
-    write_count = 0
+    for line in lines:
+        fieldName, fieldLength = line.split(',', 2)
+        schema[fieldName] = int(fieldLength)
 
-    if columns == 'one':
+    return schema
 
-      with table.batch_writer() as batch:
 
-        for i in range(item_count):
+def getRandomItemFromSchema(hash_id, sort_id, schema):
+    
+    item = {
+        'hash_id': hash_id,
+        'sort_id': sort_id
+    }
 
-          new_sort_id = str(uuid.uuid4())
+    for fieldName in schema:
+        item[fieldName] = id_generator(schema[fieldName])
 
-          batch.put_item(Item={
-            'hash_id': hash_id,
-            'sort_id': new_sort_id,
-            'field1': '\0'.join([id_generator(6)] * 24)
-          }
-        )
+    return item
 
-        write_count +=1
 
-    elif columns == 'many':
+def seed_table(table, schemaFile, hash_id, item_count):
 
-      with table.batch_writer() as batch:
-
-        for i in range(item_count):
-
-          new_sort_id = str(uuid.uuid4())
-
-          batch.put_item(Item={
-            'hash_id': hash_id,
-            'sort_id': new_sort_id,
-            'field1': id_generator(6),
-            'field2': id_generator(6),
-            'field3': id_generator(6),
-            'field4': id_generator(6),
-            'field5': id_generator(6),
-            'field6': id_generator(6),
-            'field7': id_generator(6),
-            'field8': id_generator(6),
-            'field9': id_generator(6),
-            'field10': id_generator(6),
-            'field11': id_generator(6),
-            'field12': id_generator(6),
-            'field13': id_generator(6),
-            'field14': id_generator(6),
-            'field15': id_generator(6),
-            'field16': id_generator(6),
-            'field17': id_generator(6),
-            'field18': id_generator(6),
-            'field19': id_generator(6),
-            'field20': id_generator(6),
-            'field21': id_generator(6),
-            'field22': id_generator(6),
-            'field23': id_generator(6),
-            'field24': id_generator(6)
-          }
-        )
-
-        write_count +=1
+    if (args.skip_seed == True):
+        print('Skipping seed of table...')
     else:
-      print('unkown table attributes parameter "' + tableAttributes + '", unable to seed table.')
+        print('Seeding ddb table...')
+        write_count = 0
+        tableResource = ddb_resource.Table(table)
+        schema = getSchemaFromFile(schemaFile)
 
-    print("Batch writing complete. Wrote " + str(item_count) + " total new items.")
+        with tableResource.batch_writer() as batch:
+            for i in range(item_count):
+                write_count +=1
+                sort_id = str(write_count)
+                item = getRandomItemFromSchema(hash_id, sort_id, schema)
+                batch.put_item(Item=item)    
+        
+        print("Wrote " + str(item_count) + " items to table.")
 
 
 def id_generator(size=6, chars=string.ascii_uppercase + string.digits):
@@ -282,47 +526,31 @@ def id_generator(size=6, chars=string.ascii_uppercase + string.digits):
     return ''.join(random.choice(chars) for _ in range(size))
 
 
-@time_it
-def test_query_time(table, hash_id, num_items_to_query, do_evaluate_next_keys):
-
-    remaining_items_to_query = num_items_to_query
-    d = {'query_count': 0, 'item_count': 0}
-
-    @time_it
-    def query_it(limit = num_items_to_query, exclusive_start_key = None):
-  
-        query_args = {
-            'KeyConditionExpression': Key('hash_id').eq(hash_id),
-            'Limit': limit,
-        }
-
-        if exclusive_start_key:
-            query_args['ExclusiveStartKey'] = exclusive_start_key
-        response =  table.query(**query_args)
-
-        d['query_count'] += 1
-        d['item_count'] += response['Count']
-        print('            Items retrieved: {}'.format(response['Count']))
-        
-        if 'LastEvaluatedKey' in response:
-            d['LastEvaluatedKey'] = response['LastEvaluatedKey']
-
-        return d
-
-    response = query_it()
-
-    while (do_evaluate_next_keys and 'LastEvaluatedKey' in response and d['item_count']  < remaining_items_to_query):
-      remaining_items_to_query = num_items_to_query - d['item_count'] 
-      incremental_start = time.time()
-      response = query_it(remaining_items_to_query, response['LastEvaluatedKey'])
-
-    print("Total retrieved row count:{}, Total number of Queries: {}".format(d['item_count'], d['query_count']))
-
 def _get_ddb_table_session(tableName):
 
       dynamodb = boto3.resource('dynamodb')
       table = dynamodb.Table(tableName)
       return table
+
+
+def main():
+
+    # We arbitrarily put everything under the same hash ID
+    # to make our program logic easier. 
+    hash_id = "1000"
+
+    configure_parser()
+    configure_boto3()
+    create_table_if_not_exists(
+        args.table,
+        args.mode,
+        args.rcu,
+        args.wcu
+    )
+    seed_table(args.table, args.schema, hash_id, args.seed)    
+    execute_query_rounds(args.table, args.rounds, args.query, hash_id)
+    print('Done!')
+
 
 if __name__ == '__main__':
       main()
