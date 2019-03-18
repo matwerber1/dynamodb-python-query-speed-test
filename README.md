@@ -44,3 +44,34 @@ optional arguments:
   --wcu WCU            Write capacity units (WCUs) (only for provisioned
                        capacity mode)
 ```
+
+## Default settings
+
+Default settings are below:
+
+```sh
+# Default settings:
+# -----------------------------
+# region = us-east-1
+# table  = query_testing_table
+# schema = schemas/long.schema
+# seed   = 5000
+# query  = 2500
+# rounds = 10
+# mode   = PROVISIONED
+# rcu    = 200 
+# wcu    = 100
+```
+
+# Examples
+
+1. Run test with default settings:
+
+```sh
+python run.py
+```
+
+2. Change table from PROVISIONED to PAY_PER_REQUEST (on-demand) capacity:
+```sh
+python run.py --mode PAY_PER_REQUEST
+
