@@ -111,18 +111,19 @@ def configure_boto3():
     boto_args['region_name'] = args.region
 
     if not args.endpoint:
-        boto_args['endpoint_url'] = 'https://dynamodb.{}.amazonaws.com'.format(
-            boto_args['region_name']
-        )
+        boto_args['endpoint_url'] = 'https://dynamodb.{}.amazonaws.com'.format(boto_args['region_name'])
     else:
-        boto_args['endpoint_url'] = args.endpoint
+        boto_args['endpoint_url'] = args.endpoint 
 
     ddb_resource = boto3.resource(**boto_args)
     ddb_client = boto3.client(**boto_args)
 
+
 def get_table_status(tableName):
+
     response = ddb_client.describe_table(TableName=tableName)
     return response['Table']['TableStatus']
+
 
 def ask_user(prompt):
 
@@ -290,10 +291,6 @@ def run_single_query(table, hash_id, limit, exclusive_start_key=None):
     return response
 
 def utf8len(s):
-    # Since we're dealing only with string attributes in this test, we can use
-    # this simple function to estimate data size of items retrieved based on
-    # guidance from: 
-    # https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/CapacityUnitCalculations.html
     return len(s.encode('utf-8'))
 
 
@@ -570,6 +567,7 @@ def seed_table(table, schemaFile, hash_id, item_count):
         tableResource = ddb_resource.Table(table)
         schema = getSchemaFromFile(schemaFile)
 
+        start_time = time.time()        
         with tableResource.batch_writer() as batch:
             for i in range(item_count):
                 write_count += 1
@@ -577,8 +575,10 @@ def seed_table(table, schemaFile, hash_id, item_count):
                 sort_id = str(write_count).zfill(10)  
                 item = getRandomAttributeFromSchema(hash_id, sort_id, schema)
                 batch.put_item(Item=item)    
-        
-        print("Wrote " + str(item_count) + " items to table.")
+        elapsed_time = (time.time() - start_time) * 1000
+        print("Wrote {} items to table in {:,.1f} ms.".format(
+            item_count, elapsed_time
+        ))
 
 
 def id_generator(size, chars=string.ascii_uppercase + string.digits):
