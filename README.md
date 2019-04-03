@@ -52,15 +52,16 @@ Default settings are below:
 ```sh
 # Default settings:
 # -----------------------------
-# region = us-east-1
-# table  = query_testing_table
-# schema = schemas/long.schema
-# seed   = 5000
-# query  = 2500
-# rounds = 10
-# mode   = PROVISIONED
-# rcu    = 200 
-# wcu    = 100
+# region   = us-east-1
+# table    = query_testing_table
+# schema   = schemas/long.schema
+# seed     = 5000
+# query    = 2500
+# rounds   = 10
+# mode     = PROVISIONED
+# rcu      = 200 
+# wcu      = 100
+# endpoint = (blank) - only needed if running local DDB
 ```
 
 # Examples
@@ -70,8 +71,3 @@ Default settings are below:
 ```sh
 python run.py
 ```
-
-2. Change table from PROVISIONED to PAY_PER_REQUEST (on-demand) capacity:
-```sh
-python run.py --mode PAY_PER_REQUEST
-

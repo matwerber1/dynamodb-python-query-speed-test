@@ -5,6 +5,7 @@ import time
 import json
 import sys
 import argparse
+import uuid
 
 import boto3
 from boto3.dynamodb.conditions import Key, Attr
@@ -275,7 +276,6 @@ def run_single_query(table, hash_id, limit, exclusive_start_key=None):
     print('\tExclusive start key: {}'.format(exclusive_start_key))
 
     query_args = {
-        'KeyConditionExpression': Key('hash_id').eq(hash_id),
         'Limit': limit,
         'ReturnConsumedCapacity': 'TOTAL'
     }
@@ -284,7 +284,7 @@ def run_single_query(table, hash_id, limit, exclusive_start_key=None):
         query_args['ExclusiveStartKey'] = exclusive_start_key
 
     start_time = time.time()
-    response =  table.query(**query_args)
+    response =  table.scan(**query_args)
     response['elapsed_time'] = (time.time() - start_time) * 1000
     response['item_bytes'] = get_query_response_size_in_bytes(response['Items'])
 
@@ -573,7 +573,7 @@ def seed_table(table, schemaFile, hash_id, item_count):
                 write_count += 1
                 # pad sort ID with zeroes, since its a string
                 sort_id = str(write_count).zfill(10)  
-                item = getRandomAttributeFromSchema(hash_id, sort_id, schema)
+                item = getRandomAttributeFromSchema(str(uuid.uuid4()), sort_id, schema)
                 batch.put_item(Item=item)    
         elapsed_time = (time.time() - start_time) * 1000
         print("Wrote {} items to table in {:,.1f} ms.".format(
@@ -594,10 +594,6 @@ def _get_ddb_table_session(tableName):
 
 
 def main():
-
-    # We arbitrarily put everything under the same hash ID
-    # to make our program logic easier. 
-    hash_id = "1000"
 
     configure_parser()
     configure_boto3()
