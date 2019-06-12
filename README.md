@@ -2,14 +2,11 @@
 
 # Purpose
 
-Test effect of many vs. fewer columns of data on client-side speed of queries against Amazon DynamoDB. 
+Test effect of many vs. fewer columns of data on client-side speed of queries against Amazon DynamoDB.
 
-# TLDR; Test Results
+# Results
 
-1. A larger number of attributes requires  more client processing time to deserialize the response received from DynamoDB.
-2. A larger number of attributes leads to larger response size (for the column headings). Since a single query is capped at 1 MB of data, this means fewer max rows can be retrieved per query. In other words, you can retrieve more rows per query if you compress data into fewer columns. 
-
-# Credits
+Refer to the write-up at [https://aws.amazon.com/blogs/database/optimizing-amazon-dynamodb-scan-latency-through-schema-design/](https://aws.amazon.com/blogs/database/optimizing-amazon-dynamodb-scan-latency-through-schema-design/)
 
 Thanks to switch180 & Chad Tindel for their contributions and suggestions.  
 
