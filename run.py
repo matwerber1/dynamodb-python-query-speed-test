@@ -114,7 +114,7 @@ def configure_boto3():
     if not args.endpoint:
         boto_args['endpoint_url'] = 'https://dynamodb.{}.amazonaws.com'.format(boto_args['region_name'])
     else:
-        boto_args['endpoint_url'] = args.endpoint 
+        boto_args['endpoint_url'] = args.endpoint
 
     ddb_resource = boto3.resource(**boto_args)
     ddb_client = boto3.client(**boto_args)
@@ -178,7 +178,7 @@ def execute_query_rounds(tableName, rounds, query_items, hash_id):
 
         print('-' * 80)
         print('ROUND {}:'.format(x+1))
-        
+
         response = execute_query_round(
             tableResource,
             hash_id,
@@ -218,12 +218,12 @@ def execute_query_round(table,
     }
 
     done = False
-    
+
     while (not done):
 
         response = run_single_query(
             table,
-            hash_id, 
+            hash_id,
             d['remaining_count'],
             d['exclusive_start_key']
         )
@@ -247,7 +247,7 @@ def execute_query_round(table,
                 response['item_bytes']/1000000
             )
         )
-        
+
         if (response['Count'] == 0):
             print('\nERROR: query returned 0 results! '
                 + 'is the table seeded?'
@@ -272,7 +272,7 @@ def execute_query_round(table,
     return d
 
 def run_single_query(table, hash_id, limit, exclusive_start_key=None):
-    
+
     print('\tExclusive start key: {}'.format(exclusive_start_key))
 
     query_args = {
@@ -295,7 +295,7 @@ def utf8len(s):
 
 
 def get_query_response_size_in_bytes(items):
-    
+
     # DynamoDB item size is based on guidance from this link:
     # # https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/CapacityUnitCalculations.html
 
@@ -364,7 +364,7 @@ def create_table(tableName, mode, rcu, wcu):
             'ReadCapacityUnits': rcu,
             'WriteCapacityUnits': wcu
         }
-        
+
         print('Creating DynamoDB table "{}" with provisioned capacity '
             .format(tableName)
             + 'of {} RCU and {} WCU'
@@ -394,7 +394,7 @@ def create_table(tableName, mode, rcu, wcu):
 def create_table_if_not_exists(tableName, mode, rcu, wcu):
 
     if table_exists(tableName):
-        
+
         print('Table "{}" already exists...'.format(tableName))
 
         if (args.skip_seed == True):
@@ -427,7 +427,7 @@ def update_table_capacity_mode_if_changed(tableName,
     if 'BillingModeSummary' in response['Table']:
         # The BillingModeSummarh key only present if mode is PAY_PER_REQUEST.
         # Seems like it should be present for either mode, but for now this
-        # if statement is needed to avoid errors. 
+        # if statement is needed to avoid errors.
         current_mode = response['Table']['BillingModeSummary']['BillingMode']
         print('Table is currently {} capacity mode...')
     else:
@@ -446,7 +446,7 @@ def update_table_capacity_mode_if_changed(tableName,
     elif (table_status != 'ACTIVE'):
         print('ERROR: table status is {}, cannot update capacity unless table is ACTIVE'
             .format(table_status)
-        ) 
+        )
         sys.exit()
 
     updateTable = False
@@ -462,12 +462,12 @@ def update_table_capacity_mode_if_changed(tableName,
          or (capacity_changed and new_mode == 'PROVISIONED')
        ):
         updateTable = True
-        
+
         parameters['ProvisionedThroughput'] = {
                 'ReadCapacityUnits': new_rcu,
                 'WriteCapacityUnits': new_wcu
         }
-        
+
         print('Changing table to PROVISIONED capacity of {} RCU and {} WCU...'
             .format(new_rcu, new_wcu)
         )
@@ -475,14 +475,14 @@ def update_table_capacity_mode_if_changed(tableName,
     elif mode_changed and new_mode == 'PAY_PER_REQUEST':
         updateTable = True
         print('Changing table to PAY_PER_REQUEST capacity mode...')
-    
+
     if updateTable:
         response = ddb_client.update_table(**parameters)
         done = False
         while (not done):
 
             table_status = get_table_status(tableName)
-            
+
             if table_status == 'ACTIVE':
                 done = True
                 print('Table is now active.')
@@ -498,7 +498,7 @@ def delete_all_items_in_table(table):
     count = 0
     scanned_items = []
     tableResource = ddb_resource.Table(table)
-    
+
     print('Scanning for items to delete...')
     response = tableResource.scan(
         ProjectionExpression='#hash, #sort',
@@ -532,7 +532,7 @@ def delete_all_items_in_table(table):
 def getSchemaFromFile(schemaFile):
 
     file = open(schemaFile, 'r')
-    lines = file.read().splitlines() 
+    lines = file.read().splitlines()
     schema = {}
 
     for line in lines:
@@ -543,7 +543,7 @@ def getSchemaFromFile(schemaFile):
 
 
 def getRandomAttributeFromSchema(hash_id, sort_id, schema):
-    
+
     item = {
         'hash_id': hash_id,
         'sort_id': sort_id
@@ -567,14 +567,14 @@ def seed_table(table, schemaFile, hash_id, item_count):
         tableResource = ddb_resource.Table(table)
         schema = getSchemaFromFile(schemaFile)
 
-        start_time = time.time()        
+        start_time = time.time()
         with tableResource.batch_writer() as batch:
             for i in range(item_count):
                 write_count += 1
                 # pad sort ID with zeroes, since its a string
-                sort_id = str(write_count).zfill(10)  
+                sort_id = str(write_count).zfill(10)
                 item = getRandomAttributeFromSchema(str(uuid.uuid4()), sort_id, schema)
-                batch.put_item(Item=item)    
+                batch.put_item(Item=item)
         elapsed_time = (time.time() - start_time) * 1000
         print("Wrote {} items to table in {:,.1f} ms.".format(
             item_count, elapsed_time
@@ -594,6 +594,7 @@ def _get_ddb_table_session(tableName):
 
 
 def main():
+    hash_id = str(uuid.uuid4())
 
     configure_parser()
     configure_boto3()
@@ -609,7 +610,7 @@ def main():
         args.rcu,
         args.wcu
     )
-    seed_table(args.table, args.schema, hash_id, args.seed)    
+    seed_table(args.table, args.schema, hash_id, args.seed)
     execute_query_rounds(args.table, args.rounds, args.query, hash_id)
     print('Done!')
 
